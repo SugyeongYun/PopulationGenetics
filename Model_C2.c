@@ -3,13 +3,16 @@
 #include <stdlib.h>
 #include <time.h>
 #include <math.h>
-#define num_ind (50)
+#define num_ind (200)
 #define num_gen (5800)
 #define rounds (300)
 #define seq_len (990)
-#define K (50)
+#define num_bn (55)
+#define K (200)
 #define g (100)
-#define mut_rate (0.0001)
+#define s (0.1)
+#define mut_rate (0.000084)
+#define ep_mut (0.000028)
 
 long idum_num = 65248; //random number
 long* idum = &idum_num;
@@ -170,7 +173,6 @@ int sum(int arr[], int n) {
     return sum_arr;
 }
 
-
 int mutation(int allele) {
 
 	if (ran1() < mut_rate) {
@@ -182,16 +184,29 @@ int mutation(int allele) {
 	}
 }
 
+int oneway_mut(int allele) {
+
+	if (ran1() < ep_mut) {
+		return 1;
+	}
+
+	else {
+		return allele;
+	}
+}
 
 
 int main(void) {
-	FILE* fp1 = fopen("220211_04_neutral.txt", "w");
-	FILE* fp2 = fopen("220211_04_N.txt", "w");
+
+	FILE* fp1 = fopen("220214_02_beneficial.txt", "w");
+	FILE* fp2 = fopen("220214_02_neutral.txt", "w");
+	FILE* fp3 = fopen("220214_02_N.txt", "w");
 
 
 	for (int i = 0; i < rounds; ++i) {
 
-		int substitution = 0;
+		int substitution_b = 0;
+		int substitution_n = 0;
 
 		int** ori_gen = (int **)malloc(sizeof(int *) * num_ind * 2);
 		for (int i = 0; i < num_ind * 2; ++i) {
@@ -215,6 +230,13 @@ int main(void) {
 		}
 
 
+		int* ori_bn = (int *) malloc(sizeof(int) * num_ind * 2);
+
+		for (int i = 0; i < num_ind * 2; ++i) {
+			ori_bn[i] = 0;
+		}
+
+
 		int N = num_ind;
 
 		for (int j = 1; j < num_gen; ++j) {
@@ -222,6 +244,15 @@ int main(void) {
 			for (int i = 0; i < num_ind * 2; ++i) {
 				new_gen[i] = (int *) malloc(sizeof(int) * seq_len);
 			}
+
+            int* new_bn = (int *) malloc(sizeof(int) * num_ind * 2);
+			for (int i = 0; i < num_ind * 2; ++i) {
+				new_bn[i] = 0;
+			}
+
+            int bnmax = largest(ori_bn, num_ind * 2);
+            double wmax = pow(1+s, bnmax);
+
 
 			int* count_A = (int *) malloc(sizeof(int) * seq_len);
 			for (int l = 0; l < seq_len; ++l) {
@@ -233,12 +264,21 @@ int main(void) {
 				count_a[l] = 0;
 			}
 
+
 			int idx = 0;
 			for (int k = 0; k < N; ++k) {
-				double lambda = (double) (1 + g) / (double) (1 + g * N / K);
+				double lambda = (double) ((1 + g) * pow(1+s, ori_bn[k])) / (double) (wmax * (1 + g * N / K));
 				int offspring = poidev(lambda);
 				for (int x = idx; x < idx + offspring; ++x) {
-					for (int l = 0; l < seq_len; ++l) {
+					for (int l = 0; l < num_bn; ++l) {
+						int new_allele = ori_gen[k][l];
+                        new_allele = oneway_mut(new_allele);
+						if (new_allele == 1) {
+							++new_bn[x];
+						}
+						new_gen[x][l] = new_allele;
+					}
+					for (int l = num_bn; l < seq_len; ++l) {
 						int new_allele = ori_gen[k][l];
                         new_allele = mutation(new_allele);
 						if (new_allele == 0) {
@@ -255,22 +295,40 @@ int main(void) {
 			}
 			N = idx;
 
-			for (int l = 0; l < seq_len; ++l) {
+			for (int l = num_bn; l < seq_len; ++l) {
 				freq_A[j][l] = (double) count_A[l] / (double) N;
 				freq_a[j][l] = (double) count_a[l] / (double) N;
 
 			}
-			
-			if (j > 3999) {
 
-				fprintf(fp2, "%d,", N);
-		
+            for (int i = 0; i < num_bn; ++i) {
+                int sum_vertical = 0;
+                for (int j = 0; j < N; ++j) {
+                    sum_vertical += new_gen[j][i];
+                }
+                if (sum_vertical == N) {
+                    ++substitution_b;
+                    for (int j = 0; j < N; ++j) {
+                        new_gen[j][i] = 0;
+                    }
+                }
+
+            }
+
+
+			if (j > 3999) {
+				fprintf(fp1, "%d,", substitution_b);
+				fprintf(fp3, "%d,", N);
 			}
 
 			for (int i = 0; i < num_ind * 2; ++i) {
 				for (int j = 0; j < seq_len; ++j) {
 					ori_gen[i][j] = new_gen[i][j];
 				}
+			}
+
+			for (int i = 0; i < num_ind * 2; ++i) {
+				ori_bn[i] = new_bn[i];
 			}
 
 			free(count_A);
@@ -281,13 +339,14 @@ int main(void) {
 			}
 
 			free(new_gen);
-
+			free(new_bn);
 
 		}
 
+		
 		int derived[seq_len];
 		
-		for (int i = 0; i < seq_len; ++i) {
+		for (int i = num_bn; i < seq_len; ++i) {
 			if (freq_A[i] >= freq_a[i]) {
 				derived[i] = 1;
 			}
@@ -297,31 +356,31 @@ int main(void) {
 		}
 
 		for (int j = 0; j < num_gen; ++j) {
-			for (int i = 0; i < seq_len; ++i) {
+			for (int i = num_bn; i < seq_len; ++i) {
 				if (derived[i] == 1) {
 					if (freq_a[j][i] > 0.99) {
-						++substitution;
+						++substitution_n;
 						derived[i] = 0;
 					}
 				}
 				else if (derived[i] == 0) {
 					if (freq_A[j][i] > 0.99) {
-						++substitution;
+						++substitution_n;
 						derived[i] = 1;
 					}
 				}
 			}
 			if (j > 3999) {
-				fprintf(fp1, "%d,", substitution);
+				fprintf(fp2, "%d,", substitution_n);
 			}
 		}
-
 
 		for (int i = 0; i < num_ind * 2; ++i) {
 			free(ori_gen[i]);
 		}
 
 		free(ori_gen);
+		free(ori_bn);
 
 		for (int i = 0; i < num_gen; ++i) {
 			free(freq_A[i]);
@@ -336,8 +395,10 @@ int main(void) {
 		free(freq_a);
 
 	}
+
 	fclose(fp1);
 	fclose(fp2);
+	fclose(fp3);
 	
 
 
